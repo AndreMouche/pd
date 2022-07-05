@@ -227,30 +227,47 @@ func (w *fitWorker) fitRule(index int) bool {
 	if len(candidates) < count {
 		count = len(candidates)
 	}
-	return w.enumPeers(candidates, nil, index, count)
+
+	return w.fixRuleWithCandidates(candidates, index, count)
 }
 
-// Recursively traverses all feasible peer combinations.
-// For each combination, call `compareBest` to determine whether it is better
-// than the existing option.
+// Pick the most suitable peer combination for the rule with candidates.
 // Returns true if it replaces `bestFit` with a better alternative.
-func (w *fitWorker) enumPeers(candidates, selected []*fitPeer, index int, count int) bool {
-	if len(selected) == count {
-		// We collect enough peers. End recursive.
-		return w.compareBest(selected, index)
-	}
-
-	var better bool
-	// make sure the left number of candidates should be enough.
-	indexLimit := len(candidates) - (count - len(selected))
-	for i := 0; i <= indexLimit; i++ {
-		p := candidates[i]
-		p.selected = true
-		better = w.enumPeers(candidates[i+1:], append(selected, p), index, count) || better
-		p.selected = false
-		if w.exit {
-			break
+func (w *fitWorker) fixRuleWithCandidates(candidates []*fitPeer, index int, count int) bool {
+	// map the candidates to binary numbers with len(candidates) bits,
+	// each bit can be 1 or 0, 1 means a picked candidate
+	// the binary numbers with `count` 1 means a choose for the current rule.
+	limit := 1<<len(candidates) - 1
+	cases := make([]int, 0)
+	for m := (1<<count - 1); m <= limit; m++ {
+		num := 0
+		for n := m; n > 0; n = n >> 1 {
+			num = num + (n & 1)
+			if num > count {
+				break
+			}
 		}
+		// there are exactly `count` number in current binary number `m`
+		if num == count {
+			cases = append(cases, m)
+		}
+	}
+	better := false
+	for _, c := range cases {
+		selected := make([]*fitPeer, 0)
+		for _, p := range candidates {
+			if c&1 == 1 {
+				selected = append(selected, p)
+				p.selected = true
+			} else {
+				p.selected = false
+			}
+			c = c >> 1
+			if c == 0 {
+				break
+			}
+		}
+		better = w.compareBest(selected, index) || better
 	}
 	return better
 }
